@@ -1,0 +1,123 @@
+"use client"
+
+import { useState } from "react"
+import Papa from "papaparse" // <-- ĐỘNG CƠ DỊCH DỮ LIỆU
+import { SetupView, type Deck } from "@/components/setup-view"
+import { DashboardView, type TimeLimit, type QuestionCount } from "@/components/dashboard-view"
+import { QuizView } from "@/components/quiz-view"
+import { ResultView } from "@/components/result-view"
+import { VocabularyListView } from "@/components/vocabulary-list-view"
+
+export type ViewState = "setup" | "dashboard" | "quiz" | "result" | "vocabulary"
+
+export interface QuizAnswer {
+  question: string
+  userAnswer: string
+  correctAnswer: string
+  isCorrect: boolean
+}
+
+export default function Home() {
+  const [view, setView] = useState<ViewState>("setup")
+  const [selectedDeck, setSelectedDeck] = useState<Deck | null>(null)
+  
+  // 1. STATE MỚI: Nơi lưu trữ kho từ vựng thật sau khi tải về từ Sheets
+  const [vocabulary, setVocabulary] = useState<any[]>([])
+  const [isFetching, setIsFetching] = useState(false)
+
+  const [quizAnswers, setQuizAnswers] = useState<QuizAnswer[]>([])
+  const [score, setScore] = useState(0)
+  const [timeLimit, setTimeLimit] = useState<TimeLimit>("10")
+  const [questionCount, setQuestionCount] = useState<QuestionCount>("15")
+
+  // 2. HÀM XỬ LÝ: Kích hoạt động cơ hút dữ liệu
+  const handleDeckSelect = (deck: Deck) => {
+    setIsFetching(true); // Bật hiệu ứng loading
+
+    // Tạm thời ghi đè bằng link thật của bạn để test sức mạnh của hệ thống
+    const myCSVLink = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTortzPoNcfMgIZMp5f3aBwGOYCpBqYTPitdzhJEe0JzTK6WTsFkAWpSma6iCMivZcQgj5AftbHRdeD/pub?gid=1401053622&single=true&output=csv";
+
+    Papa.parse(myCSVLink, {
+      download: true,
+      header: true, // Lấy dòng đầu tiên trong Sheets làm tiêu đề (Key)
+      skipEmptyLines: true,
+      complete: (results) => {
+        // In ra màn hình console để kiểm tra xem tải có thành công không
+        console.log("🔥 ĐÃ TẢI THÀNH CÔNG DỮ LIỆU TỪ SHEETS:", results.data);
+        
+        setVocabulary(results.data); // Bơm dữ liệu vào bộ nhớ của Web App
+        setSelectedDeck(deck);
+        setIsFetching(false); // Tắt hiệu ứng loading
+        setView("dashboard"); // Chuyển sang màn hình Dashboard
+      },
+      error: (error) => {
+        console.error("Lỗi tải dữ liệu:", error);
+        alert("Không thể tải dữ liệu từ Google Sheets! Hãy kiểm tra mạng.");
+        setIsFetching(false);
+      }
+    });
+  }
+
+  const handleStartQuiz = (selectedTimeLimit: TimeLimit, selectedQuestionCount: QuestionCount) => {
+    setTimeLimit(selectedTimeLimit)
+    setQuestionCount(selectedQuestionCount)
+    setView("quiz")
+  }
+
+  const handleQuizComplete = (answers: QuizAnswer[], finalScore: number) => {
+    setQuizAnswers(answers)
+    setScore(finalScore)
+    setView("result")
+  }
+
+  return (
+    <main className="min-h-dvh bg-background relative">
+      <div className="mx-auto max-w-md h-full">
+        
+        {/* HIỆU ỨNG LOADING MỜ KHI ĐANG HÚT DỮ LIỆU */}
+        {isFetching && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm h-dvh">
+            <div className="text-center">
+              <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+              <p className="font-medium animate-pulse">Đang hút dữ liệu từ Sheets...</p>
+            </div>
+          </div>
+        )}
+
+        {view === "setup" && <SetupView onConnect={handleDeckSelect} />}
+        {view === "dashboard" && selectedDeck && (
+          <DashboardView 
+            deck={selectedDeck} 
+            onStartQuiz={handleStartQuiz} 
+            onViewVocabulary={() => setView("vocabulary")}
+            onBack={() => setView("setup")}
+          />
+        )}
+        {view === "quiz" && (
+          <QuizView 
+            timeLimit={timeLimit}
+            questionCount={questionCount}
+            onComplete={handleQuizComplete} 
+            onQuit={() => setView("dashboard")}
+          />
+        )}
+        {view === "result" && (
+          <ResultView
+            score={score}
+            totalQuestions={parseInt(questionCount)}
+            answers={quizAnswers}
+            onStudyAgain={() => setView("dashboard")}
+            onUpdateData={() => setView("setup")}
+            onBack={() => setView("dashboard")}
+          />
+        )}
+        {view === "vocabulary" && selectedDeck && (
+          <VocabularyListView
+            deck={selectedDeck}
+            onBack={() => setView("dashboard")}
+          />
+        )}
+      </div>
+    </main>
+  )
+}
