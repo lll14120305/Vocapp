@@ -95,7 +95,7 @@ export function SetupView({ onConnect }: SetupViewProps) {
 
   return (
     <div className="flex min-h-dvh flex-col px-6 py-10">
-      <h1 className="mb-2 text-2xl font-bold tracking-tight text-foreground text-center">Select Your Study Deck</h1>
+      <h1 className="mb-2 text-2xl font-bold tracking-tight text-foreground text-center">Chọn bộ từ vựng</h1>
       
       <div className="mt-8 space-y-4 flex-1">
         {decks.map((deck) => (
@@ -125,7 +125,7 @@ export function SetupView({ onConnect }: SetupViewProps) {
         {/* PHẦN THÊM MỚI */}
         {!isAdding ? (
           <Button variant="outline" className="w-full h-16 border-dashed border-2" onClick={() => setIsAdding(true)}>
-            <Plus className="mr-2 h-5 w-5" /> Add New Custom Deck
+            <Plus className="mr-2 h-5 w-5" /> Thêm bài mới
           </Button>
         ) : (
           <Card className="p-5 border-2 border-primary/40 space-y-3">
@@ -150,7 +150,7 @@ export function SetupView({ onConnect }: SetupViewProps) {
           if (deck) onConnect(deck)
         }}
       >
-        Load Selected Deck
+        Bắt đầu học
       </Button>
     </div>
   )

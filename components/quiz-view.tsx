@@ -11,17 +11,19 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Loader2 } from "lucide-react"
-import type { QuizAnswer } from "@/app/page"
 import type { TimeLimit, QuestionCount } from "@/components/dashboard-view"
-import type { Deck } from "@/components/setup-view" // Đã thêm import Deck
+import type { Deck } from "@/components/setup-view"
 
+// Cấu trúc câu hỏi nâng cấp: Thêm trường word để lưu vết từ vựng gốc
 interface QuizQuestion {
   id: number
+  word: string // <--- Lưu từ vựng gốc ở đây
   sentence: string
   options: string[]
   correctAnswer: string
 }
 
+// Component hiển thị Furigana (giữ nguyên của bạn)
 const FuriganaText = ({ text }: { text: string }) => {
   if (!text) return <span>---</span>;
   const regex = /\[([^\[\]]+)\[([^\[\]]+)\]\]/g;
@@ -47,11 +49,12 @@ const FuriganaText = ({ text }: { text: string }) => {
 };
 
 interface QuizViewProps {
-  deck: Deck // Đã thêm cổng nhận thông tin Deck
+  deck: Deck
   vocabulary: any[]
   timeLimit: TimeLimit
   questionCount: QuestionCount
-  onComplete: (answers: QuizAnswer[], score: number) => void
+  // Nâng cấp: onComplete sẽ nhận mảng kết quả chi tiết
+  onComplete: (details: any[], score: number) => void
   onQuit: () => void
 }
 
@@ -76,7 +79,7 @@ export function QuizView({ deck, vocabulary, timeLimit, questionCount, onComplet
     return parseInt(timeLimit) * 60
   })
 
-  // NÃO BỘ TẠO ĐỀ THI THEO TỶ LỆ (Đã sửa lỗi nhận diện Deck)
+  // LOGIC TẠO ĐỀ THI
   useEffect(() => {
     const validVocab = vocabulary.filter(v => 
       (v["Từ vựng"] || v.kanji || v.Word) && (v["Ý nghĩa"] || v.meaning || v.Meaning)
@@ -88,7 +91,6 @@ export function QuizView({ deck, vocabulary, timeLimit, questionCount, onComplet
       return;
     }
 
-    // Lấy lịch sử học tập chuẩn xác của Deck đang học
     const stats = JSON.parse(localStorage.getItem(`stats-${deck.id}`) || "{}"); 
 
     const pools = {
@@ -123,6 +125,7 @@ export function QuizView({ deck, vocabulary, timeLimit, questionCount, onComplet
 
       return {
         id: index + 1,
+        word: word, // <--- Gán word vào đây
         sentence: `Nghĩa của từ "${word}" là gì?`,
         options: shuffleArray([correct, ...distractors]),
         correctAnswer: correct
@@ -133,23 +136,27 @@ export function QuizView({ deck, vocabulary, timeLimit, questionCount, onComplet
     setSelectedAnswers(Array(generatedQuestions.length).fill(null));
   }, [vocabulary, numQuestions, deck.id, onQuit]);
 
-  // HÀM NỘP BÀI
+  // HÀM NỘP BÀI (Đã được sửa để gửi kèm details)
   const handleSubmit = useCallback(() => {
     if (questions.length === 0) return;
-    const answers: QuizAnswer[] = questions.map((q, idx) => ({
-      question: q.sentence,
-      userAnswer: selectedAnswers[idx] || "",
+
+    // Tạo mảng kết quả chi tiết để phục vụ Dashboard Review
+    const details = questions.map((q, idx) => ({
+      word: q.word, // Lấy từ vựng gốc
+      userAnswer: selectedAnswers[idx] || "Không trả lời",
       correctAnswer: q.correctAnswer,
       isCorrect: selectedAnswers[idx] === q.correctAnswer,
     }))
-    const finalScore = answers.filter((a) => a.isCorrect).length
-    onComplete(answers, finalScore)
+
+    const finalScore = details.filter((a) => a.isCorrect).length
+    
+    // Gửi details và score về cho trang cha (App/Page)
+    onComplete(details, finalScore)
   }, [questions, selectedAnswers, onComplete])
 
-  // ĐÃ KHÔI PHỤC: ĐỒNG HỒ ĐẾM NGƯỢC
+  // ĐỒNG HỒ ĐẾM NGƯỢC
   useEffect(() => {
     if (timeRemaining === null || timeRemaining <= 0) return
-
     const interval = setInterval(() => {
       setTimeRemaining((prev) => {
         if (prev === null || prev <= 1) {
@@ -159,17 +166,15 @@ export function QuizView({ deck, vocabulary, timeLimit, questionCount, onComplet
         return prev - 1
       })
     }, 1000)
-
     return () => clearInterval(interval)
   }, [timeRemaining])
 
-  // ĐÃ KHÔI PHỤC: TỰ ĐỘNG NỘP BÀI KHI HẾT GIỜ
+  // TỰ ĐỘNG NỘP BÀI KHI HẾT GIỜ
   useEffect(() => {
     if (timeRemaining === 0) {
       handleSubmit()
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timeRemaining])
+  }, [timeRemaining, handleSubmit])
 
   const formatTime = (seconds: number | null) => {
     if (seconds === null) return "∞"
@@ -182,14 +187,15 @@ export function QuizView({ deck, vocabulary, timeLimit, questionCount, onComplet
     const newAnswers = [...selectedAnswers]
     newAnswers[currentQuestion] = answer
     setSelectedAnswers(newAnswers)
+    
+    // Tự động chuyển câu nếu chưa phải câu cuối (Practical UX)
+    if (currentQuestion < questions.length - 1) {
+       setTimeout(() => setCurrentQuestion(prev => prev + 1), 300);
+    }
   }
 
   const handleNavigateQuestion = (index: number) => {
     setCurrentQuestion(index)
-  }
-
-  const handleEndTestClick = () => {
-    setShowEndModal(true)
   }
 
   if (questions.length === 0) {
@@ -207,80 +213,80 @@ export function QuizView({ deck, vocabulary, timeLimit, questionCount, onComplet
   const unansweredCount = selectedAnswers.filter((a) => a === null).length
 
   return (
-    <div className="flex min-h-dvh flex-col px-6 py-8">
-      {/* Header with Timer and End Test Button */}
+    <div className="flex min-h-dvh flex-col px-6 py-8 bg-slate-50/30">
+      {/* Header */}
       <div className="mb-4 flex items-center justify-between">
-        <span className="text-sm font-medium text-muted-foreground">Quiz in Progress</span>
+        <span className="text-xs font-black text-slate-400 uppercase tracking-widest">Đang làm bài thi</span>
         
-        <div className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-mono text-sm font-semibold ${
+        <div className={`flex items-center gap-1.5 rounded-full px-4 py-1.5 font-mono text-sm font-bold ${
           timeRemaining !== null && timeRemaining <= 60 
-            ? "bg-destructive/10 text-destructive animate-pulse" 
-            : "bg-secondary text-foreground"
+            ? "bg-rose-100 text-rose-600 animate-pulse" 
+            : "bg-white text-slate-700 shadow-sm border"
         }`}>
           {formatTime(timeRemaining)}
         </div>
 
-        <Button onClick={handleEndTestClick} variant="outline" size="sm" className="text-destructive border-destructive/30 hover:bg-destructive/10">
-          End Test
+        <Button onClick={() => setShowEndModal(true)} variant="ghost" size="sm" className="text-rose-500 font-bold hover:bg-rose-50">
+          Dừng thi
         </Button>
       </div>
 
       {/* Progress Bar */}
-      <div className="mb-6">
-        <div className="mb-2 flex items-center justify-between text-sm">
-          <span className="font-medium text-foreground">
-            Question {currentQuestion + 1} of {totalQuestions}
+      <div className="mb-8">
+        <div className="mb-2 flex items-center justify-between text-xs font-bold uppercase tracking-tight">
+          <span className="text-primary">
+            Câu {currentQuestion + 1} / {totalQuestions}
           </span>
-          <span className="text-muted-foreground">
-            {totalQuestions - unansweredCount} answered
+          <span className="text-slate-400">
+             Đã làm {totalQuestions - unansweredCount} câu
           </span>
         </div>
-        <div className="h-2 overflow-hidden rounded-full bg-secondary">
+        <div className="h-2 overflow-hidden rounded-full bg-slate-200">
           <div
-            className="h-full bg-primary transition-all duration-300 ease-out"
-            style={{ width: `${((totalQuestions - unansweredCount) / totalQuestions) * 100}%` }}
+            className="h-full bg-primary transition-all duration-500 ease-out"
+            style={{ width: `${((currentQuestion + 1) / totalQuestions) * 100}%` }}
           />
         </div>
       </div>
 
-      {/* Question */}
-      <div className="mb-6">
-        <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
-          <p className="text-center text-2xl font-medium leading-relaxed text-foreground">
+      {/* Question Card */}
+      <div className="mb-8">
+        <div className="rounded-[2.5rem] border border-slate-100 bg-white p-10 shadow-xl shadow-slate-200/50 min-h-[180px] flex items-center justify-center text-center">
+          <p className="text-2xl font-black leading-relaxed text-slate-800">
             <FuriganaText text={question.sentence}/>
           </p>
         </div>
       </div>
 
-      {/* Options */}
-      <div className="mb-6 space-y-3 flex-1">
+      {/* Options List */}
+      <div className="mb-8 space-y-4 flex-1">
         {question.options.map((option, index) => (
           <button
             key={index}
             onClick={() => handleSelectAnswer(option)}
-            className={`flex w-full items-center gap-4 rounded-xl border-2 p-4 text-left transition-all ${
+            className={`flex w-full items-center gap-4 rounded-3xl border-2 p-5 text-left transition-all active:scale-[0.98] ${
               selectedAnswers[currentQuestion] === option
-                ? "border-primary bg-primary/5"
-                : "border-border bg-card hover:border-primary/50"
+                ? "border-primary bg-primary/5 ring-4 ring-primary/10"
+                : "border-white bg-white shadow-sm hover:border-slate-200"
             }`}
           >
-            <span className={`flex h-8 w-8 items-center justify-center rounded-lg text-sm font-semibold shrink-0 ${
+            <span className={`flex h-10 w-10 items-center justify-center rounded-xl text-base font-black shrink-0 ${
                 selectedAnswers[currentQuestion] === option
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-secondary text-secondary-foreground"
+                  ? "bg-primary text-white"
+                  : "bg-slate-100 text-slate-500"
               }`}
             >
               {optionLabels[index]}
             </span>
-            <span className="text-lg font-medium text-foreground">{option}</span>
+            <span className="text-lg font-bold text-slate-700">{option}</span>
           </button>
         ))}
       </div>
 
-      {/* Question Navigator */}
-      <div className="border-t border-border pt-4">
-        <p className="text-xs text-muted-foreground mb-3 text-center">Question Navigator</p>
-        <div className="flex flex-wrap justify-center gap-2">
+      {/* Navigator */}
+      <div className="bg-white rounded-t-[2.5rem] -mx-6 px-6 pt-6 pb-2 shadow-[0_-10px_40px_-15px_rgba(0,0,0,0.1)]">
+        <p className="text-[10px] font-black text-slate-400 mb-4 text-center uppercase tracking-[0.2em]">Bảng điều hướng</p>
+        <div className="flex flex-wrap justify-center gap-2 max-h-32 overflow-y-auto pb-4">
           {questions.map((_, index) => {
             const isAnswered = selectedAnswers[index] !== null
             const isCurrent = index === currentQuestion
@@ -288,12 +294,12 @@ export function QuizView({ deck, vocabulary, timeLimit, questionCount, onComplet
               <button
                 key={index}
                 onClick={() => handleNavigateQuestion(index)}
-                className={`flex h-9 w-9 items-center justify-center rounded-lg text-sm font-medium transition-all ${
+                className={`flex h-10 w-10 items-center justify-center rounded-xl text-sm font-black transition-all ${
                   isCurrent
-                    ? "ring-2 ring-primary ring-offset-2 ring-offset-background bg-primary text-primary-foreground"
+                    ? "bg-primary text-white shadow-lg shadow-primary/30 scale-110"
                     : isAnswered
-                    ? "bg-primary/80 text-primary-foreground"
-                    : "bg-secondary text-muted-foreground border border-border hover:border-primary/50"
+                    ? "bg-green-100 text-green-600 border border-green-200"
+                    : "bg-slate-50 text-slate-400 border border-slate-100 hover:bg-slate-100"
                 }`}
               >
                 {index + 1}
@@ -303,26 +309,26 @@ export function QuizView({ deck, vocabulary, timeLimit, questionCount, onComplet
         </div>
       </div>
 
-      {/* End Test Confirmation Modal */}
+      {/* Modal xác nhận */}
       <Dialog open={showEndModal} onOpenChange={setShowEndModal}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="rounded-[2rem] sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Finish and Submit?</DialogTitle>
-            <DialogDescription>Are you sure you want to end the test?</DialogDescription>
+            <DialogTitle className="text-2xl font-black">Nộp bài ngay?</DialogTitle>
+            <DialogDescription className="font-medium">Bạn có chắc chắn muốn kết thúc bài thi và xem kết quả?</DialogDescription>
           </DialogHeader>
           {unansweredCount > 0 && (
-            <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 p-3">
-              <p className="text-sm font-medium text-amber-600 dark:text-amber-500">
-                Warning: You still have {unansweredCount} unanswered question{unansweredCount > 1 ? "s" : ""}!
+            <div className="rounded-2xl bg-rose-50 border border-rose-100 p-4">
+              <p className="text-sm font-bold text-rose-600">
+                Chú ý: Bạn vẫn còn {unansweredCount} câu chưa trả lời!
               </p>
             </div>
           )}
-          <DialogFooter className="flex gap-2 sm:gap-0 mt-4">
-            <Button variant="outline" onClick={() => setShowEndModal(false)} className="flex-1 sm:flex-none">
-              Return to Quiz
+          <DialogFooter className="flex gap-3 sm:gap-0 mt-4">
+            <Button variant="outline" onClick={() => setShowEndModal(false)} className="flex-1 rounded-2xl py-6 font-bold">
+              Làm tiếp
             </Button>
-            <Button onClick={handleSubmit} className="flex-1 sm:flex-none">
-              Submit Test
+            <Button onClick={handleSubmit} className="flex-1 rounded-2xl py-6 font-bold shadow-lg shadow-primary/20">
+              Nộp bài
             </Button>
           </DialogFooter>
         </DialogContent>

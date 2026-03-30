@@ -10,7 +10,9 @@ import { VocabularyListView } from "@/components/vocabulary-list-view"
 
 export type ViewState = "setup" | "dashboard" | "quiz" | "result" | "vocabulary"
 
+// Cấu trúc QuizAnswer đồng bộ với QuizView đã sửa
 export interface QuizAnswer {
+  word?: string // Thêm để lưu vết từ vựng gốc
   question: string
   userAnswer: string
   correctAnswer: string
@@ -61,35 +63,37 @@ export default function Home() {
     setView("quiz")
   }
 
-  // ĐÃ SỬA LỖI: Gộp hàm handleQuizComplete lại cho chuẩn
+  // --- HÀM XỬ LÝ KHI HOÀN THÀNH BÀI THI ---
   const handleQuizComplete = (answers: QuizAnswer[], finalScore: number) => {
     setQuizAnswers(answers)
     setScore(finalScore)
     setView("result")
 
     if (selectedDeck) {
-      // 1. Lưu tiến độ 4 màu (stats)
+      // 1. Cập nhật Tiến độ 4 màu (stats)
       const statsKey = `stats-${selectedDeck.id}`;
       const currentStats = JSON.parse(localStorage.getItem(statsKey) || "{}");
       
       answers.forEach((ans) => {
-        const wordMatch = ans.question.match(/"([^"]+)"/);
-        if (wordMatch) {
-          const word = wordMatch[1];
+        // Ưu tiên dùng ans.word (đã thêm ở QuizView), nếu không có mới dùng Regex
+        const word = ans.word || ans.question.match(/"([^"]+)"/)?.[1];
+        
+        if (word) {
           if (!currentStats[word]) {
             currentStats[word] = { mistakes: 0, attempts: 0 };
           }
           currentStats[word].attempts += 1;
+          
           if (ans.isCorrect) {
-            currentStats[word].mistakes = 0; 
+            currentStats[word].mistakes = 0; // Trả lời đúng -> Xanh ngay
           } else {
-            currentStats[word].mistakes += 1; 
+            currentStats[word].mistakes += 1; // Sai -> Tăng bậc cảnh báo
           }
         }
       });
       localStorage.setItem(statsKey, JSON.stringify(currentStats));
 
-      // 2. Lưu lịch sử làm bài thi (history)
+      // 2. Cập nhật Lịch sử làm bài (Tối ưu 5 lần gần nhất)
       const historyKey = `history-${selectedDeck.id}`;
       const currentHistory = JSON.parse(localStorage.getItem(historyKey) || "[]");
       
@@ -99,22 +103,25 @@ export default function Home() {
           hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' 
         }),
         score: finalScore,
-        total: answers.length // Dùng answers.length để đếm số câu thực tế học sinh đã làm
+        total: answers.length,
+        details: answers // <-- QUAN TRỌNG: Lưu chi tiết để xem lại ở Dashboard
       };
       
-      currentHistory.push(newRecord);
-      localStorage.setItem(historyKey, JSON.stringify(currentHistory));
+      // Thêm cái mới lên đầu và chỉ lấy 5 cái
+      const updatedHistory = [newRecord, ...currentHistory].slice(0, 10);
+      localStorage.setItem(historyKey, JSON.stringify(updatedHistory));
     }
   }
 
   return (
-    <main className="min-h-dvh bg-background relative">
-      <div className="mx-auto max-w-md h-full">
+    <main className="min-h-dvh bg-slate-50 relative overflow-x-hidden">
+      <div className="mx-auto max-w-md h-full min-h-dvh bg-white shadow-2xl shadow-slate-200">
         {isFetching && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm h-dvh">
-            <div className="text-center">
-              <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-              <p className="font-medium animate-pulse">Đang hút dữ liệu từ Sheets...</p>
+          <div className="absolute inset-0 z-[100] flex items-center justify-center bg-white/90 backdrop-blur-md h-dvh">
+            <div className="text-center p-8 rounded-3xl bg-white shadow-xl">
+              <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-6"></div>
+              <p className="font-black text-slate-800 text-lg">Đang kết nối thư viện...</p>
+              <p className="text-sm text-slate-400 mt-2 font-medium">Vui lòng đợi trong giây lát</p>
             </div>
           </div>
         )}
@@ -145,7 +152,7 @@ export default function Home() {
         {view === "result" && (
           <ResultView
             score={score}
-            totalQuestions={quizAnswers.length} // Đồng bộ số câu hiển thị ở trang kết quả
+            totalQuestions={quizAnswers.length}
             answers={quizAnswers}
             onStudyAgain={() => setView("dashboard")}
             onUpdateData={() => setView("setup")}

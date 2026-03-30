@@ -1,12 +1,52 @@
 "use client"
 
 import React, { useState, useEffect } from "react"
-import { ChevronLeft, BookOpen, BrainCircuit, History, Trophy, Target, AlertTriangle, PlayCircle } from "lucide-react"
+import { ChevronLeft, BookOpen, History, Trophy, Target, PlayCircle, X, CheckCircle2, XCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { Deck } from "@/components/setup-view"
 
 export type TimeLimit = "5" | "10" | "15" | "none"
 export type QuestionCount = "10" | "15" | "20" | "30"
+// Dán đoạn này vào đầu file nhé
+const FuriganaText = ({ text }: { text: string }) => {
+  if (!text) return <span>---</span>;
+  const regex = /\[([^\[\]]+)\[([^\[\]]+)\]\]/g;
+  const parts = [];
+  let lastIndex = 0;
+  let match;
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(<span key={`text-${lastIndex}`}>{text.substring(lastIndex, match.index)}</span>);
+    }
+    parts.push(
+      <ruby key={`ruby-${match.index}`} className="mx-0.5">
+        {match[1]}
+        <rt className="text-[0.6em] text-muted-foreground">{match[2]}</rt>
+      </ruby>
+    );
+    lastIndex = regex.lastIndex;
+  }
+  if (lastIndex < text.length) {
+    parts.push(<span key={`text-${lastIndex}`}>{text.substring(lastIndex)}</span>);
+  }
+  return <>{parts}</>;
+};
+// --- Định nghĩa kiểu dữ liệu chi tiết ---
+interface QuizDetail {
+  word: string
+  question: string
+  userAnswer: string
+  correctAnswer: string
+  isCorrect: boolean
+}
+
+interface TestHistory {
+  id: string | number
+  date: string
+  score: number
+  total: number
+  details?: QuizDetail[] // Lưu chi tiết từng câu
+}
 
 interface DashboardViewProps {
   deck: Deck
@@ -14,13 +54,6 @@ interface DashboardViewProps {
   onStartQuiz: (timeLimit: TimeLimit, questionCount: QuestionCount) => void
   onViewVocabulary: () => void
   onBack: () => void
-}
-
-interface TestHistory {
-  id: number
-  date: string
-  score: number
-  total: number
 }
 
 export function DashboardView({ deck, vocabulary, onStartQuiz, onViewVocabulary, onBack }: DashboardViewProps) {
@@ -31,6 +64,9 @@ export function DashboardView({ deck, vocabulary, onStartQuiz, onViewVocabulary,
   // State lưu trữ dữ liệu
   const [stats, setStats] = useState({ newWords: 0, learned: 0, warning: 0, critical: 0 })
   const [history, setHistory] = useState<TestHistory[]>([])
+  
+  // State để xem chi tiết bài thi
+  const [selectedRecord, setSelectedRecord] = useState<TestHistory | null>(null)
 
   useEffect(() => {
     // 1. Đọc dữ liệu Tiến độ (4 màu)
@@ -51,9 +87,10 @@ export function DashboardView({ deck, vocabulary, onStartQuiz, onViewVocabulary,
 
     setStats({ newWords: newW, learned: learn, warning: warn, critical: crit })
 
-    // 2. Đọc dữ liệu Lịch sử thi
-    const savedHistory = JSON.parse(localStorage.getItem(`history-${deck.id}`) || "[]")
-    setHistory(savedHistory.reverse()) // Đảo ngược để bài mới nhất lên đầu
+    // 2. Đọc dữ liệu Lịch sử thi (Tối ưu lấy 5 cái gần nhất)
+    const savedHistory: TestHistory[] = JSON.parse(localStorage.getItem(`history-${deck.id}`) || "[]")
+    // Lưu ý: Dữ liệu nên được unshift (thêm vào đầu) khi lưu, nên ở đây ta chỉ lấy 5 cái đầu tiên
+    setHistory(savedHistory.slice(0, 10)) 
   }, [deck.id, vocabulary])
 
   const totalWords = stats.newWords + stats.learned + stats.warning + stats.critical
@@ -99,14 +136,12 @@ export function DashboardView({ deck, vocabulary, onStartQuiz, onViewVocabulary,
                 <Trophy size={40} className={progressPercent >= 80 ? "text-yellow-400" : "text-slate-200"} />
               </div>
 
-              {/* Thanh biểu đồ ngang */}
               <div className="h-4 flex rounded-full overflow-hidden bg-slate-100 mb-4">
                 <div style={{ width: `${(stats.learned / totalWords) * 100}%` }} className="bg-green-500"></div>
                 <div style={{ width: `${(stats.warning / totalWords) * 100}%` }} className="bg-amber-400"></div>
                 <div style={{ width: `${(stats.critical / totalWords) * 100}%` }} className="bg-rose-500"></div>
               </div>
 
-              {/* Chú thích 4 màu */}
               <div className="grid grid-cols-2 gap-3 text-sm font-medium">
                 <div className="flex items-center gap-2 text-slate-600"><div className="w-3 h-3 rounded-full bg-slate-200"></div> Mới: {stats.newWords}</div>
                 <div className="flex items-center gap-2 text-green-600"><div className="w-3 h-3 rounded-full bg-green-500"></div> Đã thuộc: {stats.learned}</div>
@@ -149,7 +184,6 @@ export function DashboardView({ deck, vocabulary, onStartQuiz, onViewVocabulary,
                 </div>
               </div>
             </div>
-
           </div>
         ) : (
           <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -160,26 +194,99 @@ export function DashboardView({ deck, vocabulary, onStartQuiz, onViewVocabulary,
                 <p className="text-sm">Hãy làm bài kiểm tra đầu tiên nhé!</p>
               </div>
             ) : (
-              history.map((record) => {
-                const percent = Math.round((record.score / record.total) * 100);
-                return (
-                  <div key={record.id} className="bg-white rounded-2xl p-4 flex items-center justify-between shadow-sm border border-slate-100">
-                    <div>
-                      <p className="text-xs font-bold text-slate-400 mb-1">{record.date}</p>
-                      <p className="font-bold text-slate-800">Kết quả: {record.score} / {record.total} </p>
+              <div className="space-y-3">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">10 bài thi gần nhất</p>
+                {history.map((record) => {
+                  const percent = Math.round((record.score / record.total) * 100);
+                  return (
+                    <div 
+                      key={record.id} 
+                      onClick={() => setSelectedRecord(record)}
+                      className="bg-white rounded-2xl p-4 flex items-center justify-between shadow-sm border border-slate-100 active:scale-[0.98] transition-all cursor-pointer hover:border-primary/30"
+                    >
+                      <div>
+                        <p className="text-xs font-bold text-slate-400 mb-1">{record.date}</p>
+                        <p className="font-bold text-slate-800">Đúng {record.score} / {record.total} </p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className={`px-3 py-1.5 rounded-lg text-sm font-black ${
+                          percent >= 80 ? "bg-green-100 text-green-600" : percent >= 50 ? "bg-amber-100 text-amber-600" : "bg-rose-100 text-rose-600"
+                        }`}>
+                          {percent}%
+                        </div>
+                        <ChevronLeft size={16} className="rotate-180 text-slate-300" />
+                      </div>
                     </div>
-                    <div className={`px-3 py-1.5 rounded-lg text-sm font-black ${
-                      percent >= 80 ? "bg-green-100 text-green-600" : percent >= 50 ? "bg-amber-100 text-amber-600" : "bg-rose-100 text-rose-600"
-                    }`}>
-                      {percent}%
-                    </div>
-                  </div>
-                )
-              })
+                  )
+                })}
+              </div>
             )}
           </div>
         )}
       </div>
+
+      {/* --- MODAL REVIEW CHI TIẾT --- */}
+      {selectedRecord && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="bg-white w-full max-w-lg rounded-t-[2.5rem] sm:rounded-[2.5rem] h-[85vh] sm:h-auto sm:max-h-[80vh] flex flex-col shadow-2xl animate-in slide-in-from-bottom duration-300">
+            {/* Modal Header */}
+            <div className="p-6 border-b flex justify-between items-center">
+              <div>
+                <h3 className="font-black text-xl text-slate-800">Chi tiết bài thi</h3>
+                <p className="text-sm text-slate-500 font-medium">{selectedRecord.date}</p>
+              </div>
+              <button 
+                onClick={() => setSelectedRecord(null)}
+                className="p-2 bg-slate-100 rounded-full text-slate-500 hover:bg-slate-200 transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-4">
+              {!selectedRecord.details || selectedRecord.details.length === 0 ? (
+                <p className="text-center text-slate-400 py-10">Không có dữ liệu chi tiết cho bài thi này.</p>
+              ) : (
+                selectedRecord.details.map((item, index) => (
+                  <div 
+                    key={index} 
+                    className={`p-4 rounded-2xl border-2 flex items-start gap-4 ${
+                      item.isCorrect ? "bg-green-50/50 border-green-100" : "bg-rose-50/50 border-rose-100"
+                    }`}
+                  >
+                    <div className="mt-1">
+                      {item.isCorrect ? <CheckCircle2 className="text-green-500" size={20} /> : <XCircle className="text-rose-500" size={20} />}
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-black text-slate-800 text-lg">
+                      <FuriganaText text={item.word || item.question} />
+                      </p>
+                      <div className="mt-2 space-y-1">
+                        <p className="text-sm font-medium text-slate-600">
+                          Bạn chọn: <span className={item.isCorrect ? "text-green-600 font-bold" : "text-rose-600 font-bold"}>{item.userAnswer}</span>
+                        </p>
+                        {!item.isCorrect && (
+                          <p className="text-sm font-medium text-slate-500">
+                            Đáp án đúng: <span className="text-green-600 font-bold">{item.correctAnswer}</span>
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-6 bg-slate-50 border-t rounded-b-[2.5rem]">
+              <Button className="w-full py-6 rounded-2xl font-bold text-lg" onClick={() => setSelectedRecord(null)}>
+                Đã hiểu
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
